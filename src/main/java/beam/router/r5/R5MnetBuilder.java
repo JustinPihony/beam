@@ -3,10 +3,12 @@ package beam.router.r5;
 import beam.sim.config.BeamConfig;
 import beam.utils.osm.WayFixer$;
 import com.conveyal.osmlib.OSM;
+import com.conveyal.osmlib.OSMEntity;
 import com.conveyal.osmlib.Way;
 import com.conveyal.r5.streets.EdgeStore;
 import com.conveyal.r5.transit.TransportNetwork;
 import com.vividsolutions.jts.geom.Coordinate;
+import org.apache.commons.math3.stat.descriptive.moment.Mean;
 import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
@@ -17,7 +19,12 @@ import org.matsim.core.utils.geometry.transformations.GeotoolsTransformation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+import static beam.router.r5.OsmToMATSim.toMetersPerSecond;
 
 /**
  * Build the pruned R5 network and MATSim network. These two networks have 1-1 link parity.
@@ -52,16 +59,69 @@ public class R5MnetBuilder {
         mNetwork = NetworkUtils.createNetwork();
     }
 
+    private final static String TAG_HIGHWAY = "highway";
+    private final static String TAG_MAXSPEED = "maxspeed";
+
+    private final static HashMap<String, HighwayType> name2Highway = new HashMap<String, HighwayType>() {{
+        put("motorway", HighwayType.Motorway);
+        put("motorway_link", HighwayType.MotorwayLink);
+        put("primary", HighwayType.Primary);
+        put("primary_link", HighwayType.PrimaryLink);
+        put("trunk", HighwayType.Trunk);
+        put("trunk_link", HighwayType.TrunkLink);
+        put("secondary", HighwayType.Secondary);
+        put("secondary_link", HighwayType.SecondaryLink);
+        put("tertiary", HighwayType.Tertiary);
+        put("tertiary_link", HighwayType.TertiaryLink);
+
+        put("minor", HighwayType.Minor);
+        put("residential", HighwayType.Residential);
+        put("living_street", HighwayType.LivingStreet);
+        put("unclassified", HighwayType.Unclassified);
+    }};
+
     public void buildMNet() {
         // Load the OSM file for retrieving the number of lanes, which is not stored in the R5 network
         Map<Long, Way> ways = new OSM(osmFile).ways;
         WayFixer$.MODULE$.fix(ways);
 
+        HashMap<String, Mean> highwayType2AverageFreeFlowSpeed = new HashMap<>();
+        for (Way way : ways.values()) {
+            OSMEntity.Tag highWayTag = null;
+            OSMEntity.Tag maxSpeedTag = null;
+            for (OSMEntity.Tag tag : way.tags) {
+                if (tag.key.equals(TAG_HIGHWAY) && name2Highway.containsKey(tag.value)) highWayTag = tag;
+                else if (tag.key.equals(TAG_MAXSPEED)) maxSpeedTag = tag;
+            }
+            if (highWayTag == null || maxSpeedTag == null) continue;
+
+            double freeSpeed;
+            try {
+                if (maxSpeedTag.value.endsWith("mph")) {
+                    freeSpeed = toMetersPerSecond(Double.parseDouble(maxSpeedTag.value.replace("mph", "").trim())); // convert mph to m/s
+                } else {
+                    freeSpeed = Double.parseDouble(maxSpeedTag.value) / 3.6; // convert km/h to m/s
+                }
+            } catch (NumberFormatException e) {
+                continue;
+            }
+
+            highwayType2AverageFreeFlowSpeed
+                    .computeIfAbsent(highWayTag.value, (x) -> new Mean())
+                    .increment(freeSpeed);
+        }
+
+        Map<HighwayType, Double> speedDefaults = new HashMap<>(highwaySetting.speedsMeterPerSecondMap);
+        highwayType2AverageFreeFlowSpeed.forEach((key, value) -> {
+            HighwayType highwayType = name2Highway.get(key);
+            if (speedDefaults.containsKey(highwayType)) return;
+            speedDefaults.put(highwayType, value.getResult());
+        });
+
         EdgeStore.Edge cursor = r5Network.streetLayer.edgeStore.getCursor();  // Iterator of edges in R5 network
-        OsmToMATSim OTM = new OsmToMATSim(mNetwork, true, highwaySetting.speedsMeterPerSecondMap, highwaySetting.capacityMap, highwaySetting.lanesMap);
+        OsmToMATSim OTM = new OsmToMATSim(mNetwork, true, speedDefaults, highwaySetting.capacityMap, highwaySetting.lanesMap);
 
         int numberOfFixes = 0;
-        HashMap<String, Integer> highwayTypeToCounts = new HashMap<>();
 
         while (cursor.advance()) {
 //            log.debug("Edge Index:{}. Cursor {}.", cursor.getEdgeIndex(), cursor);
