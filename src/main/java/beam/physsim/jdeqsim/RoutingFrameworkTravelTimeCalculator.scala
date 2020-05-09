@@ -27,7 +27,7 @@ class RoutingFrameworkTravelTimeCalculator(
 ) extends LazyLogging {
 
   private val execSvc: ExecutorService = Executors.newFixedThreadPool(
-    Runtime.getRuntime.availableProcessors(),
+    Math.max(Runtime.getRuntime.availableProcessors() / 4, 4),
     new ThreadFactoryBuilder().setDaemon(true).setNameFormat("routing-framework-worker-%d").build()
   )
   private implicit val executionContext: ExecutionContext = ExecutionContext.fromExecutorService(execSvc)
@@ -100,7 +100,8 @@ class RoutingFrameworkTravelTimeCalculator(
             stopWatch.start()
             val congestionFactor = beamServices.beamConfig.beam.physsim.routingFramework.congestionFactor
 
-            val odStream = ods.toStream.flatMap(od => (1 to congestionFactor).toStream.map(_ => od))
+            val odStream = ods.toStream
+              .flatMap(od => Stream.range(1, congestionFactor, 1).map(_ => od))
             routingToolWrapper.generateOd(iterationNumber, hour, odStream)
 
             val assignResult: (File, File, File) = routingToolWrapper.assignTraffic(iterationNumber, hour)
