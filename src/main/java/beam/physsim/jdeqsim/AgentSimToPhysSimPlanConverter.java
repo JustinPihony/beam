@@ -12,6 +12,7 @@ import beam.analysis.plot.PlotGraph;
 import beam.calibration.impl.example.CountsObjectiveFunction;
 import beam.router.BeamRouter;
 import beam.router.FreeFlowTravelTime;
+import beam.router.skim.PeakSkimCreator;
 import beam.sim.BeamConfigChangesObservable;
 import beam.sim.BeamServices;
 import beam.sim.config.BeamConfig;
@@ -231,6 +232,12 @@ public class AgentSimToPhysSimPlanConverter implements BasicEventHandler, Metric
         //################################################################################################################
         router.tell(new BeamRouter.UpdateTravelTimeLocal(travelTimeForR5), ActorRef.noSender());
 
+        if (shouldWriteInIteration(iterationNumber, beamConfig.beam().urbansim().allTAZSkimsWriteInterval())) {
+            writeTravelTimeMap(iterationNumber, travelTimeMap);
+            PeakSkimCreator psc = new PeakSkimCreator(beamServices, beamConfig, beamServices.beamRouter());
+            psc.write(iterationNumber);
+        }
+
         completableFutures.add(CompletableFuture.runAsync(() -> linkSpeedStatsGraph.notifyIterationEnds(iterationNumber, travelTimeFromPhysSim)));
 
         completableFutures.add(CompletableFuture.runAsync(() -> linkSpeedDistributionStatsGraph.notifyIterationEnds(iterationNumber, travelTimeFromPhysSim)));
@@ -255,6 +262,18 @@ public class AgentSimToPhysSimPlanConverter implements BasicEventHandler, Metric
             }
         }
         traversalEventsForPhysSimulation.clear();
+    }
+
+    private void writeTravelTimeMap(int iteration, Map<String,double[]> map) {
+        String filePath = controlerIO.getIterationFilename(iteration, "travelTime.bin");
+        try (FileOutputStream fos= new FileOutputStream(filePath)) {
+            ObjectOutputStream oos = new ObjectOutputStream(fos);
+            oos.writeObject(map);
+            oos.flush();
+            oos.close();
+        } catch (Exception ex) {
+            log.error("Can't write travel time map", ex);
+        }
     }
 
     private boolean shouldWritePlans(int iterationNumber) {

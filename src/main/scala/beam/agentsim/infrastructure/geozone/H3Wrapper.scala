@@ -3,6 +3,10 @@ package beam.agentsim.infrastructure.geozone
 import scala.collection.JavaConverters._
 import java.util.{Collections => JCollections}
 
+import beam.agentsim.infrastructure.taz.H3TAZ.{toJtsCoordinate, H3}
+import com.uber.h3core.AreaUnit
+import org.matsim.api.core.v01.Coord
+
 import com.uber.h3core.AreaUnit
 
 object H3Wrapper {
@@ -42,6 +46,23 @@ object H3Wrapper {
       .map(H3Index.apply)
       .toSet
   }
+
+  /**
+    * Find the latitude, longitude (degrees) center point of the cell.
+    * @param index H3 Index
+    */
+  def hexToCoord(index: H3Index): Coord = {
+    val coordinate = GeoZoneUtil.toJtsCoordinate(h3Core.h3ToGeo(index.value))
+    new Coord(coordinate.x, coordinate.y)
+  }
+
+  /** Average hexagon area in square meters at the given resolution.
+    * @param resolution Resolution
+    */
+  def hexAreaM2(resolution: Int): Double = {
+    h3Core.hexArea(resolution, AreaUnit.m2)
+  }
+
 
   def wgsCoordinate(index: H3Index): WgsCoordinate = {
     val coord = h3Core.h3ToGeo(index.value)

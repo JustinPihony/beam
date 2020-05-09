@@ -226,13 +226,14 @@ class UrbanSimScenarioLoader(
           )
           .toBuffer
 
-        beamScenario.vehicleTypes.values
-          .find(_.vehicleCategory == VehicleCategory.Bike) match {
-          case Some(vehType) =>
-            vehicleTypes.append(vehType)
-          case None =>
-            throw new RuntimeException("Bike not found in vehicle types.")
-        }
+        // FIXME What is this? Why we add bike in any case?
+//        beamScenario.vehicleTypes.values
+//          .find(_.vehicleCategory == VehicleCategory.Bike) match {
+//          case Some(vehType) =>
+//            vehicleTypes.append(vehType)
+//          case None =>
+//            throw new RuntimeException("Bike not found in vehicle types.")
+//        }
         initialVehicleCounter += householdInfo.cars
         totalCarCount += vehicleTypes.count(_.vehicleCategory.toString == "Car")
 
@@ -389,20 +390,25 @@ class UrbanSimScenarioLoader(
       val person = population.getFactory.createPerson(Id.createPersonId(personInfo.personId.id))
       val personId = person.getId.toString
       val personAttrib = population.getPersonAttributes
+      val hh = personHouseholds(person.getId)
+      val sexChar = if (personInfo.isFemale) "F" else "M"
+
       // FIXME Search for "householdId" in the code does not show any place where it used
       personAttrib.putAttribute(personId, "householdId", personInfo.householdId)
       // FIXME Search for "householdId" in the code does not show any place where it used
       personAttrib.putAttribute(personId, "rank", personInfo.rank)
       personAttrib.putAttribute(personId, "age", personInfo.age)
-
-      val sexChar = if (personInfo.isFemale) "F" else "M"
+      personAttrib.putAttribute(personId, "income", hh.getIncome.getIncome)
       personAttrib.putAttribute(personId, "sex", sexChar)
+
       person.getAttributes.putAttribute("sex", sexChar)
+      person.getAttributes.putAttribute("age", personInfo.age)
+      person.getAttributes.putAttribute("income", hh.getIncome.getIncome)
 
       AvailableModeUtils.setAvailableModesForPerson_v2(
         beamScenario,
         person,
-        personHouseholds(person.getId),
+        hh,
         population,
         availableModes.split(",")
       )
