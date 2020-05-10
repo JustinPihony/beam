@@ -119,14 +119,21 @@ class RoutingFrameworkTravelTimeCalculator(
       val assignResult: (File, File, File) = routingToolWrapper.assignTraffic(iterationNumber, hour)
       logger.info("Traffic assignment for hour {} is finished in {} ms", hour, stopWatch.getTime)
 
+      var curIter = -1
       val wayId2TravelTime: mutable.Map[Long, Double] = new mutable.HashMap[Long, Double]()
       Source
         .fromFile(assignResult._1)
         .getLines()
         .drop(2)
-        .map((x: String) => x.split(","))
-        // picking only result of 10th iteration
-        .filter(x => x(0) == "10")
+        .map(x => x.split(","))
+        // picking only result of last iteration
+        .map { x =>
+          if (x(0).toInt != curIter) {
+            curIter = x(0).toInt
+            wayId2TravelTime.clear()
+          }
+          x
+        }
         // way id into bpr
         .map(x => x(4).toLong -> x(5).toDouble / 10.0)
         .foreach {
