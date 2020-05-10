@@ -25,11 +25,11 @@ class RoutingFrameworkTravelTimeCalculator(
   private val beamServices: BeamServices
 ) extends LazyLogging {
 
-  private val execSvc: ExecutorService = Executors.newFixedThreadPool(
-    Math.min(Runtime.getRuntime.availableProcessors(), 12),
-    new ThreadFactoryBuilder().setDaemon(true).setNameFormat("routing-framework-worker-%d").build()
-  )
-  private implicit val executionContext: ExecutionContext = ExecutionContext.fromExecutorService(execSvc)
+//  private val execSvc: ExecutorService = Executors.newFixedThreadPool(
+//    Math.min(Runtime.getRuntime.availableProcessors(), 12),
+//    new ThreadFactoryBuilder().setDaemon(true).setNameFormat("routing-framework-worker-%d").build()
+//  )
+//  private implicit val executionContext: ExecutionContext = ExecutionContext.fromExecutorService(execSvc)
 
   def getLink2TravelTimes(
     pathTraversalEvents: util.Collection[PathTraversalEvent],
@@ -59,10 +59,10 @@ class RoutingFrameworkTravelTimeCalculator(
       .groupBy(_._1)
       .mapValues(_.map(_._2).toList)
 
-    val futures: Iterable[Future[(Int, Map[Long, Double])]] = hour2Events
+    val futures: Iterable[(Int, Map[Long, Double])] = hour2Events
       .map {
         case (hour, events) =>
-          Future {
+
             val stopWatch: StopWatch = new StopWatch
             stopWatch.start()
 
@@ -132,9 +132,9 @@ class RoutingFrameworkTravelTimeCalculator(
 
             (hour, wayId2TravelTime.toMap)
           }
-      }
 
-    val hour2Way2TravelTimes = Await.result(Future.sequence(futures), 1.hour).toMap
+
+    val hour2Way2TravelTimes = /*Await.result(Future.sequence(futures), 1.hour)*/futures.toMap
 
     val travelTimeMap: mutable.Map[String, Array[Double]] = new mutable.HashMap[String, Array[Double]]
     val totalNumberOfLinks: Int = links.size
