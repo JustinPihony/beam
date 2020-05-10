@@ -25,11 +25,11 @@ class RoutingFrameworkTravelTimeCalculator(
   private val beamServices: BeamServices
 ) extends LazyLogging {
 
-//  private val execSvc: ExecutorService = Executors.newFixedThreadPool(
-//    Math.min(Runtime.getRuntime.availableProcessors(), 12),
-//    new ThreadFactoryBuilder().setDaemon(true).setNameFormat("routing-framework-worker-%d").build()
-//  )
-//  private implicit val executionContext: ExecutionContext = ExecutionContext.fromExecutorService(execSvc)
+  private val execSvc: ExecutorService = Executors.newFixedThreadPool(
+    Math.max(Runtime.getRuntime.availableProcessors() / 4, 1),
+    new ThreadFactoryBuilder().setDaemon(true).setNameFormat("routing-framework-worker-%d").build()
+  )
+  private implicit val executionContext: ExecutionContext = ExecutionContext.fromExecutorService(execSvc)
 
   def getLink2TravelTimes(
     pathTraversalEvents: util.Collection[PathTraversalEvent],
@@ -59,10 +59,10 @@ class RoutingFrameworkTravelTimeCalculator(
       .groupBy(_._1)
       .mapValues(_.map(_._2).toList)
 
-    val futures: Iterable[(Int, Map[Long, Double])] = hour2Events
+    val odsCreationFutures = hour2Events
       .map {
         case (hour, events) =>
-
+          Future {
             val stopWatch: StopWatch = new StopWatch
             stopWatch.start()
 
@@ -105,36 +105,40 @@ class RoutingFrameworkTravelTimeCalculator(
               .flatMap(od => Stream.range(0, congestionFactor, 1).map(_ => od))
             routingToolWrapper.generateOd(iterationNumber, hour, odStream)
 
-            logger.warn("Generated {} ods, for hour {} in {}", odnumber, hour, stopWatch.getTime)
-            stopWatch.reset()
-            stopWatch.start()
-
-            val assignResult: (File, File, File) = routingToolWrapper.assignTraffic(iterationNumber, hour)
-            logger.info("Assigned traffic for hour {} in {}", hour, stopWatch.getTime)
-
-            val wayId2TravelTime: mutable.Map[Long, Double] = new mutable.HashMap[Long, Double]()
-            Source
-              .fromFile(assignResult._1)
-              .getLines()
-              .drop(2)
-              .map((x: String) => x.split(","))
-              // picking only result of 10th iteration
-              .filter(x => x(0) == "10")
-              // way id into bpr
-              .map(x => x(4).toLong -> x(5).toDouble / 10.0)
-              .foreach {
-                case (wayId, travelTime) =>
-                  wayId2TravelTime.get(wayId) match {
-                    case Some(v) => wayId2TravelTime.put(wayId, v + travelTime)
-                    case None    => wayId2TravelTime.put(wayId, travelTime)
-                  }
-              }
-
-            (hour, wayId2TravelTime.toMap)
+            logger.info("Generated {} ods, for hour {} in {} ms", odnumber, hour, stopWatch.getTime)
           }
+      }
 
+    Await.result(Future.sequence(odsCreationFutures), 10.minutes)
 
-    val hour2Way2TravelTimes = /*Await.result(Future.sequence(futures), 1.hour)*/futures.toMap
+    val hour2Way2TravelTimes: Map[Int, Map[Long, Double]] = hour2Events.keys.toList.sorted.map { hour =>
+      val stopWatch: StopWatch = new StopWatch
+      stopWatch.start()
+
+      logger.info("Starting traffic assignment for hour {}", hour)
+      val assignResult: (File, File, File) = routingToolWrapper.assignTraffic(iterationNumber, hour)
+      logger.info("Traffic assignment for hour {} is finished in {} ms", hour, stopWatch.getTime)
+
+      val wayId2TravelTime: mutable.Map[Long, Double] = new mutable.HashMap[Long, Double]()
+      Source
+        .fromFile(assignResult._1)
+        .getLines()
+        .drop(2)
+        .map((x: String) => x.split(","))
+        // picking only result of 10th iteration
+        .filter(x => x(0) == "10")
+        // way id into bpr
+        .map(x => x(4).toLong -> x(5).toDouble / 10.0)
+        .foreach {
+          case (wayId, travelTime) =>
+            wayId2TravelTime.get(wayId) match {
+              case Some(v) => wayId2TravelTime.put(wayId, v + travelTime)
+              case None    => wayId2TravelTime.put(wayId, travelTime)
+            }
+        }
+
+      (hour, wayId2TravelTime.toMap)
+    }.toMap
 
     val travelTimeMap: mutable.Map[String, Array[Double]] = new mutable.HashMap[String, Array[Double]]
     val totalNumberOfLinks: Int = links.size
@@ -175,7 +179,7 @@ class RoutingFrameworkTravelTimeCalculator(
 
     logger.info("Total links: {}, failed to assign travel time: {}", totalNumberOfLinks, linksFailedToResolve.get)
 
-    logger.info("Created travel times in {}", System.currentTimeMillis - startTime)
+    logger.info("Created travel times in {} ms", System.currentTimeMillis - startTime)
 
     travelTimeMap.asJava
   }
