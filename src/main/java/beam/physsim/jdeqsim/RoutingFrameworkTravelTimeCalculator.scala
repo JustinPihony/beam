@@ -99,10 +99,8 @@ class RoutingFrameworkTravelTimeCalculator(
                   (firstId, secondId)
               }
 
-            val congestionFactor = beamServices.beamConfig.beam.physsim.routingFramework.congestionFactor
-
             val odStream = ods
-              .flatMap(od => Stream.range(0, congestionFactor, 1).map(_ => od))
+              .flatMap(od => Stream.range(0, odsFactor, 1).map(_ => od))
             routingToolWrapper.generateOd(iterationNumber, hour, odStream)
 
             logger.info("Generated {} ods, for hour {} in {} ms", odnumber, hour, stopWatch.getTime)
@@ -190,6 +188,12 @@ class RoutingFrameworkTravelTimeCalculator(
 
     travelTimeMap.asJava
   }
+
+  private val odsFactor: Int =
+    Math.max(
+      (1.0 / beamServices.beamConfig.beam.agentsim.agentSampleSizeAsFractionOfPopulation * beamServices.beamConfig.beam.physsim.routingFramework.congestionFactor).toInt,
+      1
+    )
 
   private def linkWayId(link: Link): Long = {
     val origid: Any = link.getAttributes.getAttribute("origid")
