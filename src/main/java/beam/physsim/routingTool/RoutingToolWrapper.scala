@@ -7,7 +7,6 @@ import com.google.common.io.Files
 import com.typesafe.scalalogging.LazyLogging
 
 import scala.sys.process.Process
-import scala.util.{Failure, Success, Try}
 
 trait RoutingToolWrapper {
   def generateGraph(): File
@@ -106,34 +105,27 @@ class InternalRTWrapper(private val pbfPath: String, private val tempDirPath: St
     val distPath = itHourRelatedPath("/work", iteration, hour, "dist")
     val statPath = itHourRelatedPath("/work", iteration, hour, "stat")
 
-    val query = (iterations: Int) => s"""
-                                       |docker run --rm
-                                       | --memory-swap -1
-                                       | -v $tempDir:/work
-                                       | $toolDockerImage
-                                       | $assignTrafficLauncher
-                                       | -g $graphPathInContainer
-                                       | -d ${odPairsFileInContainer(iteration, hour)}
-                                       | -p 1 -n $iterations -o random
-                                       | -i
-                                       | -v
-                                       | -flow $flowPath
-                                       | -dist $distPath
-                                       | -stat $statPath
+    val query = s"""
+                     |docker run --rm
+                     | --memory-swap -1
+                     | -v $tempDir:/work
+                     | $toolDockerImage
+                     | $assignTrafficLauncher
+                     | -g $graphPathInContainer
+                     | -d ${odPairsFileInContainer(iteration, hour)}
+                     | -p 1 -n 0 -o random
+                     | -i
+                     | -v
+                     | -flow $flowPath
+                     | -dist $distPath
+                     | -stat $statPath
       """.stripMargin.replace("\n", "")
 
-    (2 to 10).reverse.toStream
-      .map(
-        iterationsCount =>
-          Try {
-            logger.info("Docker command for assigning traffic: {}", query(iterationsCount))
+    logger.info("Docker command for assigning traffic: {}", query)
 
-            val assignTrafficOutput = Process(query(iterationsCount))
+    val assignTrafficOutput = Process(query)
 
-            assignTrafficOutput.lineStream.foreach(logger.info(_))
-        }
-      )
-      .find(_.isSuccess)
+    assignTrafficOutput.lineStream.foreach(logger.info(_))
 
     (
       itHourRelatedPath(tempDirPath, iteration, hour, "flow.csv").toFile,
