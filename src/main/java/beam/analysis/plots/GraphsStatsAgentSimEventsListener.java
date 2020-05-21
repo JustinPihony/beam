@@ -53,9 +53,9 @@ public class GraphsStatsAgentSimEventsListener implements BasicEventHandler, Ite
                                              OutputDirectoryHierarchy controlerIO,
                                              BeamServices services, BeamConfig beamConfig) {
         this(services);
-        try{
+        try {
             statsFactory.createStats();
-        }catch (Exception e){
+        } catch (Exception e) {
             log.error("exception: {}", e);
         }
 
@@ -94,31 +94,48 @@ public class GraphsStatsAgentSimEventsListener implements BasicEventHandler, Ite
     }
 
     public void createGraphs(IterationEndsEvent event) {
-            try {
-                for (GraphAnalysis stat : statsFactory.getGraphAnalysis()) stat.createGraph(event);
-                DeadHeadingAnalysis deadHeadingStats = (DeadHeadingAnalysis) statsFactory.getAnalysis(StatsType.DeadHeading);
-                deadHeadingStats.createGraph(event, "TNC0");
-                if (CONTROLLER_IO != null) {
-                    // TODO: Asif - benchmarkFileLoc also part of calibraiton yml -> remove there (should be just in config file)
-
-                    // TODO: Asif there should be no need to write to root and then read (just quick hack) -> update interface on methods, which need that data to pass in memory
-                    ModeChosenAnalysis modeChoseStats = (ModeChosenAnalysis) statsFactory.getAnalysis(StatsType.ModeChosen);
-                    String outPath = CONTROLLER_IO.getOutputFilename(ModeChosenAnalysis.getModeChoiceFileBaseName() + ".csv");
-                    modeChoseStats.writeToRootCSV(outPath);
-                    if (beamConfig.beam().calibration().mode().benchmarkFilePath().trim().length() > 0) {
-                        Double modesAbsoluteError = new ModeChoiceObjectiveFunction(beamConfig.beam().calibration().mode().benchmarkFilePath()).evaluateFromRun(outPath, ErrorComparisonType.AbsoluteError());
-                        log.info("modesAbsoluteError: " + modesAbsoluteError);
-                        Double modesRMSPError = new ModeChoiceObjectiveFunction(beamConfig.beam().calibration().mode().benchmarkFilePath()).evaluateFromRun(outPath, ErrorComparisonType.RMSPE());
-                        log.info("modesRMSPError: " + modesRMSPError);
-                    }
-                }
-            } catch (Exception e) {
-                log.error("exception: {}", e);
+        try {
+            for (GraphAnalysis stat : statsFactory.getGraphAnalysis()) {
+                long start = System.currentTimeMillis();
+                stat.createGraph(event);
+                long timeTaken = System.currentTimeMillis() - start;
+                log.info("{} took {} ms", stat.getClass().getSimpleName(), timeTaken);
             }
+            DeadHeadingAnalysis deadHeadingStats = (DeadHeadingAnalysis) statsFactory.getAnalysis(StatsType.DeadHeading);
+            long deadHeadingGraphCreationStart = System.currentTimeMillis();
+            deadHeadingStats.createGraph(event, "TNC0");
+            log.info("Dead heading graph creation took {} ms", System.currentTimeMillis() - deadHeadingGraphCreationStart);
+
+            if (CONTROLLER_IO != null) {
+                // TODO: Asif - benchmarkFileLoc also part of calibraiton yml -> remove there (should be just in config file)
+
+                // TODO: Asif there should be no need to write to root and then read (just quick hack) -> update interface on methods, which need that data to pass in memory
+                long modeChosenAnalysisStart = System.currentTimeMillis();
+                ModeChosenAnalysis modeChoseStats = (ModeChosenAnalysis) statsFactory.getAnalysis(StatsType.ModeChosen);
+                String outPath = CONTROLLER_IO.getOutputFilename(ModeChosenAnalysis.getModeChoiceFileBaseName() + ".csv");
+                modeChoseStats.writeToRootCSV(outPath);
+                log.info("Mode choice analysys took {} ms", System.currentTimeMillis() - modeChosenAnalysisStart);
+
+                if (beamConfig.beam().calibration().mode().benchmarkFilePath().trim().length() > 0) {
+                    long modesAbsoluteErrorStart= System.currentTimeMillis();
+                    Double modesAbsoluteError = new ModeChoiceObjectiveFunction(beamConfig.beam().calibration().mode().benchmarkFilePath()).evaluateFromRun(outPath, ErrorComparisonType.AbsoluteError());
+                    log.info("modesAbsoluteError took {} ms", System.currentTimeMillis() - modesAbsoluteErrorStart);
+
+                    log.info("modesAbsoluteError: " + modesAbsoluteError);
+                    long modesRMSPErrorStart = System.currentTimeMillis();
+                    Double modesRMSPError = new ModeChoiceObjectiveFunction(beamConfig.beam().calibration().mode().benchmarkFilePath()).evaluateFromRun(outPath, ErrorComparisonType.RMSPE());
+                    log.info("modesRMSPError: " + modesRMSPError);
+                    log.info("modesRMSPError took {} ms", System.currentTimeMillis() - modesRMSPErrorStart);
+                }
+            }
+        } catch (Exception e) {
+            log.error("exception: {}", e);
+        }
 
     }
 
     private final static String ON_DEMAND_RIDE = "onDemandRide";
+
     @Override
     public Map<String, Double> getSummaryStats() {
         return statsFactory.getSummaryAnalysis().stream()

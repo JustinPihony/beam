@@ -16,12 +16,11 @@ import beam.analysis.via.ExpectedMaxUtilityHeatMap
 import beam.analysis.{DelayMetricAnalysis, IterationStatsProvider, RideHailUtilizationCollector}
 import beam.physsim.jdeqsim.AgentSimToPhysSimPlanConverter
 import beam.router.osm.TollCalculator
+import beam.router.r5.RouteDumper
 import beam.router.skim.Skims
 import beam.router.{BeamRouter, RouteHistory}
 import beam.sim.config.{BeamConfig, BeamConfigHolder}
-import beam.router.r5.RouteDumper
-import beam.sim.metrics.SimulationMetricCollector.SimulationTime
-import beam.sim.metrics.{BeamStaticMetricsWriter, Metrics, MetricsSupport}
+import beam.sim.metrics.{BeamStaticMetricsWriter, MetricsSupport}
 //import beam.sim.metrics.MetricsPrinter.{Print, Subscribe}
 //import beam.sim.metrics.{MetricsPrinter, MetricsSupport}
 import beam.utils.csv.writers._
@@ -31,11 +30,6 @@ import beam.utils.{DebugLib, NetworkHelper, ProfilingUtils, SummaryVehicleStatsP
 import com.conveyal.r5.transit.TransportNetwork
 import com.google.inject.Inject
 import com.typesafe.scalalogging.LazyLogging
-import org.matsim.api.core.v01.Id
-import org.matsim.api.core.v01.population.{Leg, Person, Population, PopulationFactory}
-import org.matsim.core.population.PopulationUtils
-import org.matsim.utils.objectattributes.ObjectAttributes
-import org.matsim.utils.objectattributes.attributable.AttributesUtils
 import org.matsim.core.events.handler.BasicEventHandler
 //import com.zaxxer.nuprocess.NuProcess
 import beam.analysis.PythonProcess
@@ -279,18 +273,34 @@ class BeamSim @Inject()(
         modalityStyleStats.processData(scenario.getPopulation, event)
         modalityStyleStats.buildModalityStyleGraph()
       }
+
+      def measure[T](op: String)(f: => T): T = {
+        val start = System.currentTimeMillis()
+        val res = f
+        logger.info("{} took {} ms", op, System.currentTimeMillis() - start)
+        res
+      }
+
+      //TODO FROM
+      logger.info("START LOOKING HERE")
       createGraphsFromEvents.createGraphs(event)
 
-      iterationSummaryStats += iterationStatsProviders
-        .flatMap(_.getSummaryStats.asScala)
-        .toMap
+      measure("Iteration stats summary") {
+        iterationSummaryStats += iterationStatsProviders
+          .flatMap(_.getSummaryStats.asScala)
+          .toMap
+      }
 
       val summaryVehicleStatsFile =
         Paths.get(event.getServices.getControlerIO.getOutputFilename("summaryVehicleStats.csv")).toFile
-      val unProcessedStats = writeSummaryVehicleStats(summaryVehicleStatsFile)
+      val unProcessedStats = measure("writeSummaryVehicleStats") {
+        writeSummaryVehicleStats(summaryVehicleStatsFile)
+      }
 
-      val summaryStatsFile = Paths.get(event.getServices.getControlerIO.getOutputFilename("summaryStats.csv")).toFile
-      writeSummaryStats(summaryStatsFile, unProcessedStats)
+      measure("writeSummaryStats") {
+        val summaryStatsFile = Paths.get(event.getServices.getControlerIO.getOutputFilename("summaryStats.csv")).toFile
+        writeSummaryStats(summaryStatsFile, unProcessedStats)
+      }
 
       iterationSummaryStats.flatMap(_.keySet).distinct.foreach { x =>
         val key = x.split("_")(0)
@@ -298,14 +308,25 @@ class BeamSim @Inject()(
         graphFileNameDirectory += key -> value
       }
 
-      val fileNames = iterationSummaryStats.flatMap(_.keySet).distinct.sorted
-      fileNames.foreach(file => createSummaryStatsGraph(file, event.getIteration))
+      measure("createSummaryStatsGraph for all files") {
+        val fileNames = iterationSummaryStats.flatMap(_.keySet).distinct.sorted
+        fileNames.foreach(
+          file =>
+            measure(file + " createSummaryStatsGraph") {
+              createSummaryStatsGraph(file, event.getIteration)
+          }
+        )
+      }
 
       graphFileNameDirectory.clear()
 
-      // rideHailIterationHistoryActor ! CollectRideHailStats
-      tncIterationsStatsCollector
-        .tellHistoryToRideHailIterationHistoryActorAndReset()
+      measure("tellHistoryToRideHailIterationHistoryActorAndReset") {
+        // rideHailIterationHistoryActor ! CollectRideHailStats
+        tncIterationsStatsCollector
+          .tellHistoryToRideHailIterationHistoryActorAndReset()
+      }
+      logger.info("STOP LOOKING HERE")
+      // TODO TO
 
       if (beamConfig.beam.replanning.Module_2.equalsIgnoreCase("ClearRoutes")) {
         routeHistory.expireRoutes(beamConfig.beam.replanning.ModuleProbability_2)
