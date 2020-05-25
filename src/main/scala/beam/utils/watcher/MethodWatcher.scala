@@ -19,8 +19,8 @@ object MethodWatcher {
     logger.info(
       s"Invocation of '{}' took {} {}",
       name,
-      duration.toUnit(timeUnit).toString.toLowerCase(),
-      timeUnit
+      duration.toUnit(timeUnit).toString,
+      timeUnit.toString.toLowerCase()
     )
 
     res
