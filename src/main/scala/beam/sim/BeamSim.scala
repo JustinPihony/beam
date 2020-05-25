@@ -21,6 +21,7 @@ import beam.router.skim.Skims
 import beam.router.{BeamRouter, RouteHistory}
 import beam.sim.config.{BeamConfig, BeamConfigHolder}
 import beam.sim.metrics.{BeamStaticMetricsWriter, MetricsSupport}
+import beam.utils.watcher.MethodWatcher
 //import beam.sim.metrics.MetricsPrinter.{Print, Subscribe}
 //import beam.sim.metrics.{MetricsPrinter, MetricsSupport}
 import beam.utils.csv.writers._
@@ -274,31 +275,23 @@ class BeamSim @Inject()(
         modalityStyleStats.buildModalityStyleGraph()
       }
 
-      def measure[T](op: String)(f: => T): T = {
-        val start = System.currentTimeMillis()
-        val res = f
-        logger.info("{} took {} ms", op, System.currentTimeMillis() - start)
-        res
-      }
-
       //TODO FROM
       logger.info("START LOOKING HERE")
       createGraphsFromEvents.createGraphs(event)
 
-      measure("Iteration stats summary") {
-        iterationSummaryStats += iterationStatsProviders
-          .flatMap(_.getSummaryStats.asScala)
-          .toMap
-      }
+      iterationSummaryStats += iterationStatsProviders
+        .flatMap(_.getSummaryStats.asScala)
+        .toMap
 
       val summaryVehicleStatsFile =
         Paths.get(event.getServices.getControlerIO.getOutputFilename("summaryVehicleStats.csv")).toFile
-      val unProcessedStats = measure("writeSummaryVehicleStats") {
-        writeSummaryVehicleStats(summaryVehicleStatsFile)
-      }
+      val unProcessedStats =
+        MethodWatcher.withLoggingInvocationTime("Saving summary vehicle stats", logger.underlying) {
+          writeSummaryVehicleStats(summaryVehicleStatsFile)
+        }
 
-      measure("writeSummaryStats") {
-        val summaryStatsFile = Paths.get(event.getServices.getControlerIO.getOutputFilename("summaryStats.csv")).toFile
+      val summaryStatsFile = Paths.get(event.getServices.getControlerIO.getOutputFilename("summaryStats.csv")).toFile
+      MethodWatcher.withLoggingInvocationTime("Saving summary stats", logger.underlying) {
         writeSummaryStats(summaryStatsFile, unProcessedStats)
       }
 
@@ -308,19 +301,17 @@ class BeamSim @Inject()(
         graphFileNameDirectory += key -> value
       }
 
-      measure("createSummaryStatsGraph for all files") {
-        val fileNames = iterationSummaryStats.flatMap(_.keySet).distinct.sorted
-        fileNames.foreach(
-          file =>
-            measure(file + " createSummaryStatsGraph") {
-              createSummaryStatsGraph(file, event.getIteration)
-          }
-        )
+      val fileNames = iterationSummaryStats.flatMap(_.keySet).distinct.sorted
+      MethodWatcher.withLoggingInvocationTime(
+        "Creating summary stats graphs",
+        logger.underlying
+      ) {
+        fileNames.foreach(file => createSummaryStatsGraph(file, event.getIteration))
       }
 
       graphFileNameDirectory.clear()
 
-      measure("tellHistoryToRideHailIterationHistoryActorAndReset") {
+      MethodWatcher.withLoggingInvocationTime("tellHistoryToRideHailIterationHistoryActorAndReset") {
         // rideHailIterationHistoryActor ! CollectRideHailStats
         tncIterationsStatsCollector
           .tellHistoryToRideHailIterationHistoryActorAndReset()
