@@ -306,7 +306,16 @@ class BeamSim @Inject()(
         "Creating summary stats graphs",
         logger.underlying
       ) {
-        fileNames.foreach(file => createSummaryStatsGraph(file, event.getIteration))
+
+        fileNames.foreach(
+          file =>
+            MethodWatcher.withLoggingInvocationTime(
+              s"Creating summary stats graphs, file $file",
+              logger.underlying
+            ) {
+              createSummaryStatsGraph(file, event.getIteration)
+          }
+        )
       }
 
       graphFileNameDirectory.clear()
