@@ -3,6 +3,7 @@ package beam.agentsim.agents.ridehail
 import beam.agentsim.events.{ModeChoiceEvent, PathTraversalEvent}
 import beam.sim.BeamServices
 import beam.sim.common.GeoUtils
+import beam.utils.watcher.MethodWatcher
 import com.conveyal.r5.transit.TransportNetwork
 import com.typesafe.scalalogging.LazyLogging
 import org.matsim.api.core.v01.Coord
@@ -119,62 +120,78 @@ class RideHailIterationsStatsCollector(
   }
 
   def tellHistoryToRideHailIterationHistoryActorAndReset(): Unit = {
-    updateStatsForIdlingVehicles()
+    MethodWatcher.withLoggingInvocationTime("RH -> updateStatsForIdlingVehicles ", logger.underlying) {
+      updateStatsForIdlingVehicles()
+    }
 
-    rideHailIterationHistoryActor updateRideHailStats
-    TNCIterationStats(
-      rideHailStats.map { case (k, v) => (k, v.toList) },
-      beamServices.beamScenario.tazTreeMap,
-      timeBinSizeInSec,
-      numberOfTimeBins
-    )
+    val iterationStats =
+      MethodWatcher.withLoggingInvocationTime("RH -> iter stats creation", logger.underlying) {
+        TNCIterationStats(
+          rideHailStats.map { case (k, v) => (k, v.toList) },
+          beamServices.beamScenario.tazTreeMap,
+          timeBinSizeInSec,
+          numberOfTimeBins
+        )
+      }
 
-    clearStats()
+    MethodWatcher.withLoggingInvocationTime("RH -> updateRideHailStats", logger.underlying) {
+      rideHailIterationHistoryActor.updateRideHailStats(iterationStats)
+    }
+
+    MethodWatcher.withLoggingInvocationTime("RH -> clearStats", logger.underlying) {
+      clearStats()
+    }
   }
 
   private def updateStatsForIdlingVehicles(): Unit = {
 
-    rideHailLastEvent.foreach(rhEvent => {
-      val vehicleId = rhEvent._1
-      var idlingBins = vehicleIdlingBins.get(vehicleId) match {
-        case Some(bins) => bins
-        case None =>
-          val bins = mutable.Map[Int, String]()
-          vehicleIdlingBins.put(vehicleId, bins)
-          bins
-      }
-
-      val lastEvent = rhEvent._2
-      val endTazId = getEndTazId(lastEvent)
-      val endTime = lastEvent.arrivalTime
-      val endingBin = getTimeBin(endTime)
-      idlingBins ++= ((endingBin + 1) until numberOfTimeBins)
-        .map((_, endTazId))
-        .toMap
-    })
-
-    addMissingTaz()
-
-    rideHailStats.foreach { items =>
-      val tazId = items._1
-      val bins = items._2
-
-      bins.zipWithIndex.foreach { bin =>
-        val binIndex = bin._2
-        val noOfIdlingVehicles = getNoOfIdlingVehicle(tazId, binIndex)
-
-        if (noOfIdlingVehicles > 0) {
-          bins(binIndex) = bin._1 match {
-            case Some(entry) =>
-              Some(entry.copy(sumOfIdlingVehicles = noOfIdlingVehicles))
-            case None =>
-              Some(RideHailStatsEntry(sumOfIdlingVehicles = noOfIdlingVehicles))
-          }
+    MethodWatcher.withLoggingInvocationTime("RH -> updateStatsForIdlingVehicles -> P1 ", logger.underlying) {
+      rideHailLastEvent.foreach(rhEvent => {
+        val vehicleId = rhEvent._1
+        var idlingBins = vehicleIdlingBins.get(vehicleId) match {
+          case Some(bins) => bins
+          case None =>
+            val bins = mutable.Map[Int, String]()
+            vehicleIdlingBins.put(vehicleId, bins)
+            bins
         }
+
+        val lastEvent = rhEvent._2
+        val endTazId = getEndTazId(lastEvent)
+        val endTime = lastEvent.arrivalTime
+        val endingBin = getTimeBin(endTime)
+        idlingBins ++= ((endingBin + 1) until numberOfTimeBins)
+          .map((_, endTazId))
+          .toMap
+      })
+    }
+
+    MethodWatcher.withLoggingInvocationTime("RH -> updateStatsForIdlingVehicles -> addMissingTAZ ", logger.underlying) {
+      addMissingTaz()
+    }
+
+    MethodWatcher.withLoggingInvocationTime("RH -> updateStatsForIdlingVehicles -> P2 ", logger.underlying) {
+      rideHailStats.foreach {
+        case (tazId, bins) =>
+          bins.zipWithIndex.foreach { bin =>
+            val binIndex = bin._2
+            val noOfIdlingVehicles = getNoOfIdlingVehicle(tazId, binIndex)
+
+            if (noOfIdlingVehicles > 0) {
+              bins(binIndex) = bin._1 match {
+                case Some(entry) =>
+                  Some(entry.copy(sumOfIdlingVehicles = noOfIdlingVehicles))
+                case None =>
+                  Some(RideHailStatsEntry(sumOfIdlingVehicles = noOfIdlingVehicles))
+              }
+            }
+          }
       }
     }
 
-    logIdlingStats()
+    MethodWatcher.withLoggingInvocationTime("RH -> updateStatsForIdlingVehicles -> logIdlingStats ", logger.underlying) {
+      logIdlingStats()
+    }
   }
 
   private def addMissingTaz(): Unit = {
